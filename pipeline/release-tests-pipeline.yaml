@@ -1,0 +1,129 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: release-tests
+spec:
+  params:
+  - name: ocp-installer-image
+    type: string
+    description: openshift installer image
+  - name: cluster-name
+    type: string
+    description: openshift installer image
+  - name: operator-env
+    type: string
+    description: openshift pipelines operator environment
+  - name: release-tests-image
+    type: string
+    description: release-tests latest image
+  - name: uploader-host
+    type: string
+    description: To upload reports & logs to uploader hosts
+  workspaces:
+  - name: install-dir
+  - name: secrets
+  - name: configmap
+  tasks:
+  - name: provision-cluster
+    taskRef:
+      name: provision-cluster
+    workspaces:
+    - name: install-dir
+      workspace: install-dir
+    - name: secrets
+      workspace: secrets
+    params:
+    - name: PLATFORM
+      value: aws
+    - name: BASE_DOMAIN
+      value: devcluster.openshift.com
+    - name: CLUSTER_NAME
+      value: $(params.cluster-name)
+    - name: REGION
+      value: us-east-2
+    - name: REPLICAS
+      value: "3"
+    - name: OPENSHIFT_INSTALLER_IMAGE
+      value: $(params.ocp-installer-image)
+  - name: pipelines-operator-subscription
+    taskRef:
+      name: subscribe-to-pipelines-operator
+    runAfter:
+    - provision-cluster
+    workspaces:
+    - name: install-dir
+      workspace: install-dir
+    - name: configmap
+      workspace: configmap
+  - name: release-tests-pipelines
+    taskRef:
+      name: release-tests-pipelines
+    params:
+    - name: operator-env
+      value: $(params.operator-env)
+    - name: image
+      value: $(params.release-tests-image)
+    - name: cluster-name
+      value: $(params.cluster-name)
+    - name: uploader-host
+      value: $(params.uploader-host)
+    runAfter:
+    - pipelines-operator-subscription
+    workspaces:
+    - name: install-dir
+      workspace: install-dir
+  - name: release-tests-triggers
+    taskRef:
+      name: release-tests-triggers
+    params:
+      - name: operator-env
+        value: $(params.operator-env)
+      - name: image
+        value: $(params.release-tests-image)
+      - name: cluster-name
+        value: $(params.cluster-name)
+      - name: uploader-host
+        value: $(params.uploader-host)
+    runAfter:
+      - pipelines-operator-subscription
+    workspaces:
+      - name: install-dir
+        workspace: install-dir
+  - name: tutorial-tests
+    taskRef:
+      name: tutorial-tests
+    params:
+      - name: image
+        value: $(params.ocp-installer-image)
+      - name: cluster-name
+        value: $(params.cluster-name)
+      - name: uploader-host
+        value: $(params.uploader-host)
+    runAfter:
+      - pipelines-operator-subscription
+    workspaces:
+      - name: install-dir
+        workspace: install-dir
+  - name: uninstall-pipelines-operator
+    taskRef:
+      name: uninstall-pipelines-operator
+    runAfter:
+    - release-tests-pipelines
+    - release-tests-triggers
+    - tutorial-tests
+    workspaces:
+    - name: install-dir
+      workspace: install-dir
+    - name: configmap
+      workspace: configmap
+  - name: destroy-ocp-cluster
+    taskRef:
+        name: destroy-cluster
+    params:
+      - name: OPENSHIFT_INSTALLER_IMAGE
+        value: $(params.ocp-installer-image)
+    runAfter:
+      - uninstall-pipelines-operator
+    workspaces:
+      - name: install-dir
+        workspace: install-dir

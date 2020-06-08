@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: openshift-pipelines-e2e-tests
+spec:
+  pipelineRef:
+    name: release-tests
+  timeout: 3h
+  params:
+  - name: ocp-installer-image
+    value: docker.io/praveen4g0/release-tests-bootstrap-image:v0.0.2
+  - name: cluster-name
+    value: qe-ci
+  - name: operator-env
+    value: prod
+  - name: release-tests-image
+    value: docker.io/praveen4g0/release-tests:v0.0.7
+  - name: uploader-host
+    value: http://uploader-uploader.apps.cicd.tekton.codereadyqe.com
+  workspaces:
+  - name: install-dir
+    persistentvolumeclaim:
+      claimName: install-dir
+  - name: secrets
+    secret:
+      secretName: aws-credentials
+  - name: configmap
+    configMap:
+       name: subscription-store
+       items:
+       - key: subscription
+         path: subscription.yaml

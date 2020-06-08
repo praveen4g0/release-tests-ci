@@ -1,0 +1,18 @@
+apiVersion: tekton.dev/v1beta1
+kind: TaskRun
+metadata:
+  name: tutorial-tests
+spec:
+  taskRef:
+    name: tutorial-tests
+  params:
+  - name: image
+    value: docker.io/praveen4g0/release-tests-bootstrap-image:v0.0.2
+  - name: cluster-name
+    value: qe-ci
+  - name: uploader-host
+    value: http://uploader-uploader.apps.cicd.tekton.codereadyqe.com
+  workspaces:
+  - name: install-dir
+    persistentvolumeclaim:
+      claimName: install-dir

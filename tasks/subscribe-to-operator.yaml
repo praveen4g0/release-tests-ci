@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: subscribe-to-pipelines-operator
+spec:
+  workspaces:
+    - name: install-dir
+      mountPath: "/tekton/home/"
+    - name: configmap
+  steps:
+    - name: subscribe-to-operator
+      image: quay.io/openshift/origin-cli:latest
+      workingDir: $(workspaces.install-dir.path)
+      script: |
+          #!/usr/bin/env bash
+          set -e -u -o pipefail
+          export KUBECONFIG=auth/kubeconfig
+
+          # Sometime the url can let us down, so let's add a counter
+          i=1
+          while [[ $i -le 10 ]];do
+            oc login -u kubeadmin -p "$(cat $(workspaces.install-dir.path)/auth/kubeadmin-password)" --insecure-skip-tls-verify=true && break || true
+            sleep 5
+           (( i++ ))
+          done
+
+          echo -n "Subscribing to openshift pipelines operator...."
+          # subscribe to pipelines operator
+          oc apply -f $(workspaces.configmap.path)/subscription.yaml >/dev/null 2>&1
+          echo -n " Done."
+      securityContext:
+        runAsUser: 0

@@ -1,0 +1,79 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: tutorial-tests
+spec:
+  workspaces:
+    - name: install-dir
+      mountPath: "/tekton/home/"
+  params:
+  - name: image
+    type: string
+    description: oc & tkn latest image
+  - name: cluster-name
+    type: string
+    description: Cluster name
+    default: "openshift-pipelines-install"
+  - name: uploader-host
+    type: string
+    description: If you have this installed then set it here.
+  steps:
+    - name: run-tutorial-tests
+      image: $(params.image)
+      workingDir: /tutorial/pipelines-tutorial
+      env:
+        - name: UPLOADER_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: openshift-install
+              key: uploader-username
+        - name: UPLOADER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: openshift-install
+              key: uploader-password
+      securityContext:
+        runAsUser: 0
+        privileged: true
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        clean() {  echo -n " Running Cleanup... "; oc delete project pipelines-tutorial; }
+        trap clean EXIT
+
+        # exporting required
+        export KUBECONFIG=$(workspaces.install-dir.path)/auth/kubeconfig
+
+
+        echo -n "Running pipelines tutorial..."
+        # Run Tutorial pipelines Tests
+        ./demo.sh setup | tee -a logs || true
+        ./demo.sh run | tee -a logs || true
+        echo -n "Done."
+
+        function upload() {
+          dest="$2"
+          [[ -z ${dest} ]] && dest="CI/$(inputs.params.cluster-name)/$(basename ${1})"
+          curl -f -u ${UPLOADER_USERNAME}:${UPLOADER_PASSWORD} \
+            -F path=${dest} \
+            -F file=@${1} \
+            $(inputs.params.uploader-host)/upload
+        }
+        [[ -n $(inputs.params.uploader-host) && \
+           -n ${UPLOADER_USERNAME} && \
+           -n ${UPLOADER_PASSWORD} ]] || exit 0
+
+        # Set report generated timestamp
+        curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`
+
+        # uploading logs
+        upload logs CI/$(inputs.params.cluster-name)/tutorial-report/${curr_ts}/result.log
+      volumeMounts:
+      - name: source
+        mountPath: /tutorial
+  volumes:
+  - name: source
+    gitRepo:
+      repository: https://github.com/praveen4g0/pipelines-tutorial.git
+      revision: tutorial-tests

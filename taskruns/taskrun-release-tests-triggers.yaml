@@ -1,0 +1,20 @@
+apiVersion: tekton.dev/v1beta1
+kind: TaskRun
+metadata:
+  name: release-tests-triggers
+spec:
+  taskRef:
+    name: release-tests-triggers
+  params:
+    - name: operator-env
+      value: prod
+    - name: image
+      value: praveen4g0/release-tests:v0.0.7
+    - name: cluster-name
+      value: "qe-ci"
+    - name: uploader-host
+      value: http://uploader-uploader.apps.cicd.tekton.codereadyqe.com
+  workspaces:
+  - name: install-dir
+    persistentvolumeclaim:
+      claimName: install-dir

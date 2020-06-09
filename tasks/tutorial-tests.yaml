@@ -39,7 +39,7 @@ spec:
         #!/usr/bin/env bash
         set -e -u -o pipefail
 
-        clean() {  echo -n " Running Cleanup... "; oc delete project pipelines-tutorial; }
+        clean() {  echo -n " Running Cleanup... "; oc delete project pipelines-tutorial; curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`; upload logs CI/$(inputs.params.cluster-name)/tutorial-report/${curr_ts}/result.log; }
         trap clean EXIT
 
         # exporting required
@@ -48,8 +48,8 @@ spec:
 
         echo -n "Running pipelines tutorial..."
         # Run Tutorial pipelines Tests
-        ./demo.sh setup | tee -a logs || true
-        ./demo.sh run | tee -a logs || true
+        ./demo.sh setup | tee -a logs
+        ./demo.sh run | tee -a logs
         echo -n "Done."
 
         function upload() {
@@ -64,11 +64,6 @@ spec:
            -n ${UPLOADER_USERNAME} && \
            -n ${UPLOADER_PASSWORD} ]] || exit 0
 
-        # Set report generated timestamp
-        curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`
-
-        # uploading logs
-        upload logs CI/$(inputs.params.cluster-name)/tutorial-report/${curr_ts}/result.log
       volumeMounts:
       - name: source
         mountPath: /tutorial

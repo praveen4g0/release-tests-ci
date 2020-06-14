@@ -5,25 +5,30 @@ metadata:
 spec:
   pipelineRef:
     name: release-tests
-  timeout: 3h
+  timeout: 2h
   params:
-  - name: ocp-installer-image
+  - name: OPENSHIFT_INSTALLER_IMAGE
     value: docker.io/praveen4g0/release-tests-bootstrap-image:v0.0.2
-  - name: cluster-name
+  - name: CLUSTER_NAME
     value: qe-ci
-  - name: operator-env
+  - name: BASE_DOMAIN
+    value: tekton.codereadyqe.com
+  - name: OPERATOR-ENV
     value: prod
-  - name: release-tests-image
+  - name: RELEASE-TESTS-IMAGE
     value: docker.io/praveen4g0/release-tests:v0.0.7
-  - name: uploader-host
+  - name: UPLOADER-HOST
     value: http://uploader-uploader.apps.cicd.tekton.codereadyqe.com
   workspaces:
   - name: install-dir
     persistentvolumeclaim:
       claimName: install-dir
-  - name: secrets
+  - name: aws-secrets
     secret:
       secretName: aws-credentials
+  - name: psi-secrets
+    secret:
+      secretName: psi-cloud-creds
   - name: configmap
     configMap:
        name: subscription-store

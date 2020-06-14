@@ -7,19 +7,19 @@ spec:
     - name: install-dir
       mountPath: "/tekton/home/"
   params:
-  - name: image
+  - name: IMAGE
     type: string
     description: oc & tkn latest image
-  - name: cluster-name
+  - name: CLUSTER_NAME
     type: string
     description: Cluster name
     default: "openshift-pipelines-install"
-  - name: uploader-host
+  - name: UPLOADER-HOST
     type: string
     description: If you have this installed then set it here.
   steps:
     - name: run-tutorial-tests
-      image: $(params.image)
+      image: $(params.IMAGE)
       workingDir: /tutorial/pipelines-tutorial
       env:
         - name: UPLOADER_USERNAME
@@ -39,31 +39,31 @@ spec:
         #!/usr/bin/env bash
         set -e -u -o pipefail
 
-        clean() {  echo -n " Running Cleanup... "; oc delete project pipelines-tutorial; curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`; upload logs CI/$(inputs.params.cluster-name)/tutorial-report/${curr_ts}/result.log; }
+        clean() {  echo -n " Running Cleanup... "; oc delete project pipelines-tutorial; curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`; upload logs CI/$(params.CLUSTER_NAME)/tutorial-report/${curr_ts}/result.log; }
         trap clean EXIT
 
         # exporting required
-        export KUBECONFIG=$(workspaces.install-dir.path)/auth/kubeconfig
+        export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
 
 
         echo -n "Running pipelines tutorial..."
         # Run Tutorial pipelines Tests
-        ./demo.sh setup | tee -a logs
-        ./demo.sh run | tee -a logs
+        ./demo.sh setup | tee -a logs || true
+        ./demo.sh run | tee -a logs || true
         echo -n "Done."
+
+        [[ -n $(params.UPLOADER-HOST) && \
+        -n ${UPLOADER_USERNAME} && \
+        -n ${UPLOADER_PASSWORD} ]] || exit 0
 
         function upload() {
           dest="$2"
-          [[ -z ${dest} ]] && dest="CI/$(inputs.params.cluster-name)/$(basename ${1})"
+          [[ -z ${dest} ]] && dest="CI/$(params.CLUSTER_NAME)/$(basename ${1})"
           curl -f -u ${UPLOADER_USERNAME}:${UPLOADER_PASSWORD} \
             -F path=${dest} \
             -F file=@${1} \
-            $(inputs.params.uploader-host)/upload
+            $(params.UPLOADER-HOST)/upload
         }
-        [[ -n $(inputs.params.uploader-host) && \
-           -n ${UPLOADER_USERNAME} && \
-           -n ${UPLOADER_PASSWORD} ]] || exit 0
-
       volumeMounts:
       - name: source
         mountPath: /tutorial

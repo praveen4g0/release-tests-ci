@@ -4,52 +4,61 @@ metadata:
   name: release-tests
 spec:
   params:
-  - name: ocp-installer-image
+  - name: OPENSHIFT_INSTALLER_IMAGE
     type: string
     description: openshift installer image
-  - name: cluster-name
+  - name: CLUSTER_NAME
     type: string
     description: openshift installer image
-  - name: operator-env
+  - name: BASE_DOMAIN
+    type: string
+    description: Configurable domain name
+  - name: OPERATOR-ENV
     type: string
     description: openshift pipelines operator environment
-  - name: release-tests-image
+  - name: RELEASE-TESTS-IMAGE
     type: string
     description: release-tests latest image
-  - name: uploader-host
+  - name: UPLOADER-HOST
     type: string
     description: To upload reports & logs to uploader hosts
   workspaces:
   - name: install-dir
-  - name: secrets
+  - name: aws-secrets
+  - name: psi-secrets
   - name: configmap
   tasks:
-  - name: provision-cluster
+  - name: provision-cluster-psi
     taskRef:
-      name: provision-cluster
+      name: provision-cluster-psi
     workspaces:
     - name: install-dir
       workspace: install-dir
-    - name: secrets
-      workspace: secrets
+    - name: aws-secrets
+      workspace: aws-secrets
+    - name: psi-secrets
+      workspace: psi-secrets
     params:
     - name: PLATFORM
       value: aws
     - name: BASE_DOMAIN
-      value: devcluster.openshift.com
+      value: $(params.BASE_DOMAIN)
     - name: CLUSTER_NAME
-      value: $(params.cluster-name)
+      value: $(params.CLUSTER_NAME)
     - name: REGION
       value: us-east-2
     - name: REPLICAS
       value: "3"
     - name: OPENSHIFT_INSTALLER_IMAGE
-      value: $(params.ocp-installer-image)
+      value: $(params.OPENSHIFT_INSTALLER_IMAGE)
   - name: pipelines-operator-subscription
     taskRef:
       name: subscribe-to-pipelines-operator
     runAfter:
-    - provision-cluster
+    - provision-cluster-psi
+    params:
+      - name: CLUSTER_NAME
+        value: $(params.CLUSTER_NAME)
     workspaces:
     - name: install-dir
       workspace: install-dir
@@ -59,14 +68,14 @@ spec:
     taskRef:
       name: release-tests-pipelines
     params:
-    - name: operator-env
-      value: $(params.operator-env)
-    - name: image
-      value: $(params.release-tests-image)
-    - name: cluster-name
-      value: $(params.cluster-name)
-    - name: uploader-host
-      value: $(params.uploader-host)
+    - name: OPERATOR-ENV
+      value: $(params.OPERATOR-ENV)
+    - name: IMAGE
+      value: $(params.RELEASE-TESTS-IMAGE)
+    - name: CLUSTER_NAME
+      value: $(params.CLUSTER_NAME)
+    - name: UPLOADER-HOST
+      value: $(params.UPLOADER-HOST)
     runAfter:
     - pipelines-operator-subscription
     workspaces:
@@ -76,14 +85,14 @@ spec:
     taskRef:
       name: release-tests-triggers
     params:
-      - name: operator-env
-        value: $(params.operator-env)
-      - name: image
-        value: $(params.release-tests-image)
-      - name: cluster-name
-        value: $(params.cluster-name)
-      - name: uploader-host
-        value: $(params.uploader-host)
+      - name: OPERATOR-ENV
+        value: $(params.OPERATOR-ENV)
+      - name: IMAGE
+        value: $(params.RELEASE-TESTS-IMAGE)
+      - name: CLUSTER_NAME
+        value: $(params.CLUSTER_NAME)
+      - name: UPLOADER-HOST
+        value: $(params.UPLOADER-HOST)
     runAfter:
       - pipelines-operator-subscription
     workspaces:
@@ -93,12 +102,12 @@ spec:
     taskRef:
       name: tutorial-tests
     params:
-      - name: image
-        value: $(params.ocp-installer-image)
-      - name: cluster-name
-        value: $(params.cluster-name)
-      - name: uploader-host
-        value: $(params.uploader-host)
+      - name: IMAGE
+        value: $(params.OPENSHIFT_INSTALLER_IMAGE)
+      - name: CLUSTER_NAME
+        value: $(params.CLUSTER_NAME)
+      - name: UPLOADER-HOST
+        value: $(params.UPLOADER-HOST)
     runAfter:
       - pipelines-operator-subscription
     workspaces:
@@ -111,19 +120,30 @@ spec:
     - release-tests-pipelines
     - release-tests-triggers
     - tutorial-tests
+    params:
+      - name: CLUSTER_NAME
+        value: $(params.CLUSTER_NAME)
     workspaces:
     - name: install-dir
       workspace: install-dir
     - name: configmap
       workspace: configmap
-  - name: destroy-ocp-cluster
+  - name: destroy-cluster-psi
     taskRef:
-        name: destroy-cluster
+        name: destroy-cluster-psi
     params:
       - name: OPENSHIFT_INSTALLER_IMAGE
-        value: $(params.ocp-installer-image)
+        value: $(params.OPENSHIFT_INSTALLER_IMAGE)
+      - name: CLUSTER_NAME
+        value: $(params.CLUSTER_NAME)
+      - name: BASE_DOMAIN
+        value: $(params.BASE_DOMAIN)
     runAfter:
       - uninstall-pipelines-operator
     workspaces:
       - name: install-dir
         workspace: install-dir
+      - name: aws-secrets
+        workspace: aws-secrets
+      - name: psi-secrets
+        workspace: psi-secrets

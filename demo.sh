@@ -3,7 +3,7 @@ set -e -u -o pipefail
 
 declare -r SCRIPT_DIR=$(cd -P $(dirname $0) && pwd)
 
-declare -r NAMESPACE=${NAMESPACE:-release-tests-ci}
+declare -r NAMESPACE=${NAMESPACE:-release-tests-psi-ci}
 
 _log() {
     local level=$1; shift
@@ -63,7 +63,7 @@ demo.setup-pipeline() {
   [[ "$run_bootstrap" == "skip-bootstrap" ]] || bootstrap
 
   info "Applying pipeline tasks"
-  OC apply -f tasks/
+  OC apply -f tasks-psi/
 
 
   info "Applying resources"
@@ -75,6 +75,28 @@ demo.setup-pipeline() {
   echo -e "\nPipeline"
   echo "==============="
   TKN p desc release-tests
+
+}
+
+demo.cleanup() {
+  local run_bootstrap=${1:-"run"}
+  [[ "$run_bootstrap" == "skip-bootstrap" ]] || bootstrap
+
+  info "Delete tasks"
+  OC delete -f tasks-psi/ || true
+
+  info "Deleting pipeline"
+  OC delete -f pipeline/release-tests-pipeline.yaml || true
+
+  info "Deleting pipeline run"
+  OC delete -f pipelinerun/release-tests-pipelinerun.yaml || true
+
+
+  info "Deleting resources"
+  OC delete -f resources/ || true
+
+  info "Deleting Project"
+  oc delete project $NAMESPACE
 
 }
 
@@ -91,7 +113,7 @@ demo.logs() {
 }
 
 demo.run() {
-  info "Running API Build and deploy"
+  info "Running pipeline"
   OC apply -f pipelinerun/release-tests-pipelinerun.yaml
 }
 
@@ -123,10 +145,10 @@ demo.help() {
 		  demo [command]
 
 		COMMANDS:
-		  setup             runs both pipeline and trigger setup
-		  setup-pipeline    sets up project, tasks, pipeline and resources
+		  setup             runs setup part of release-tests ci
 		  run               starts pipeline
 		  logs              Get pipelinerun logs in -f mode
+      cleanup           Helps to perform cleanup
 EOF
 }
 

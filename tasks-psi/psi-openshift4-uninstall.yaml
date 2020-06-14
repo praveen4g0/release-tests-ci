@@ -1,0 +1,106 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: destroy-cluster-psi
+spec:
+  workspaces:
+    - name: install-dir
+      mountPath: /tekton/home/
+    - name: aws-secrets
+      mountPath: /tekton/home/.aws
+    - name: psi-secrets
+      mountPath: /tekton/home/.config/openstack
+  params:
+    - name: OPENSHIFT_INSTALLER_IMAGE
+      type: string
+      description: openshift installer base image for upi installation
+      default: praveen4g0/release-tests-bootstrap-image:v0.0.2
+    - name: CLUSTER_NAME
+      type: string
+      description: Cluster name
+    - name: BASE_DOMAIN
+      type: string
+      description: Base domain of your cluster install
+  steps:
+    - name: psi-ocp-cluster-destroy
+      image: $(params.OPENSHIFT_INSTALLER_IMAGE)
+      workingDir: $(workspaces.install-dir.path)
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        CLUSTER_NAME=$(params.CLUSTER_NAME)
+        export OS_CLOUD=${OS_CLOUD:-"psi-pipelines"}
+
+        echo "Running \"openshift-install destroy cluster\""
+        /usr/local/bin/openshift-install --dir=cluster/$CLUSTER_NAME --log-level debug destroy cluster || true
+    - name: remove-psi-resources
+      workingDir: $(workspaces.install-dir.path)
+      image: docker.io/praveen4g0/openstack-aws-cli:v0.0.5
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        export AWS_PROFILE=${AWS_PROFILE:-"aws-pipelines"}
+        CLUSTER_NAME=$(params.CLUSTER_NAME)
+
+        if [ -z $CLUSTER_NAME ]; then
+          echo -e "Specify desired cluster name as a parameter of this script \n"
+          exit 1
+        fi
+
+        if [ -f cluster/$CLUSTER_NAME/.openshift_install_state.json ]; then
+          # installation got quite far
+          DOMAIN=$(jq -r '."*installconfig.InstallConfig".config.baseDomain' cluster/$CLUSTER_NAME/.openshift_install_state.json)
+        else
+          # installation probably did not start
+          DOMAIN=$(params.BASE_DOMAIN)
+        fi
+
+        echo "Cluster name: $CLUSTER_NAME"
+
+        if [ ! -d "cluster/$CLUSTER_NAME" ]; then
+          echo "Directory \"cluster/$CLUSTER_NAME\" does not exist."
+          exit 3
+        fi
+
+        echo "Getting zone ID in Route53"
+        ZONES=$(aws route53 list-hosted-zones --output json)
+        ZONE_ID=$(echo $ZONES | jq -r ".HostedZones[] | select(.Name==\"$DOMAIN.\") | .Id")
+
+        if [ -z $ZONE_ID ]; then
+          echo "Domain $DOMAIN not found in Route53"
+          exit 5
+        fi
+
+        echo "Deleting DNS records in Route53"
+        FIP1=$(dig +short api.$CLUSTER_NAME.$DOMAIN)
+        FIP2=$(dig +short x.apps.$CLUSTER_NAME.$DOMAIN)
+
+        RESPONSE=$(aws route53 change-resource-record-sets --hosted-zone-id $ZONE_ID --change-batch '{ "Comment": "Delete A record for cluster API", "Changes": [ { "Action": "DELETE", "ResourceRecordSet": { "Name": "api.'$CLUSTER_NAME'.'$DOMAIN'", "Type": "A", "TTL":  60, "ResourceRecords": [ { "Value": "'$FIP1'" } ] } } ] }' --output json)
+
+        if [ $? != 0 ]; then
+          echo "Failed to delete A records for the cluster"
+          exit 6
+        fi
+
+        echo "Waiting for DNS change to propagate"
+        aws route53 wait resource-record-sets-changed --id $(echo $RESPONSE | jq -r '.ChangeInfo.Id')
+
+        RESPONSE=$(aws route53 change-resource-record-sets --hosted-zone-id $ZONE_ID --change-batch '{ "Comment": "Delete A record for cluster ingress", "Changes": [ { "Action": "DELETE", "ResourceRecordSet": { "Name": "*.apps.'$CLUSTER_NAME'.'$DOMAIN'", "Type": "A", "TTL":  60, "ResourceRecords": [ { "Value": "'$FIP2'" } ] } } ] }' --output json)
+
+        if [ $? != 0 ]; then
+          echo "Failed to delete A records for the cluster, it's OK if previous installation failed."
+        else
+          echo "Waiting for DNS change to propagate"
+          aws route53 wait resource-record-sets-changed --id $(echo $RESPONSE | jq -r '.ChangeInfo.Id')
+        fi
+
+        echo "Releasing the floating IPs"
+        openstack floating ip delete $FIP1 $FIP2 || true
+
+        echo "Check Openstack server list After Removing all resources.."
+        openstack server list || true
+
+        echo "Removing directory \"cluster/$CLUSTER_NAME\""
+        rm -rf cluster/$CLUSTER_NAME

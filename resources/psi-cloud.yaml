@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: psi-cloud-creds
+type: Opaque
+stringData:
+  clouds.yaml: |
+    clouds:
+      psi-pipelines:
+        auth:
+          auth_url: "https://rhos-d.infra.prod.upshift.rdu2.redhat.com:13000/v3"
+          username: $OS_CLOUD_USERNAME
+          password: $OS_CLOUD_PASSWORD
+          project_id: "7b4c0133359d44a4ba633f7db8357524"
+          project_name: "psi-pipelines"
+          user_domain_name: "redhat.com"
+        region_name: "regionOne"
+        interface: "public"
+        identity_api_version: 3

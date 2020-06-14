@@ -7,6 +7,11 @@ spec:
     - name: install-dir
       mountPath: "/tekton/home/"
     - name: configmap
+  params:
+    - name: CLUSTER_NAME
+      type: string
+      description: cluster name
+      default: qe-ci
   steps:
     - name: uninstall-operator
       image: quay.io/openshift/origin-cli:latest
@@ -14,7 +19,10 @@ spec:
       script: |
           #!/usr/bin/env bash
           set -e -u -o pipefail
-          export KUBECONFIG=auth/kubeconfig
+          export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
+
+          clean() {  echo -n " Running Cleanup... "; oc api-resources | grep tekton; echo -n "openshift-pipelines uninstalled successfully.."; }
+          trap clean EXIT
 
           # Delete instance (name: cluster) of config.operator.tekton.dev
           oc delete config.operator.tekton.dev cluster --cascade=true

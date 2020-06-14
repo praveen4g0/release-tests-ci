@@ -7,24 +7,24 @@ spec:
     - name: install-dir
       mountPath: "/tekton/home/"
   params:
-  - name: operator-env
+  - name: OPERATOR-ENV
     type: string
     description: pipelines operator environment
     default: prod
-  - name: image
+  - name: IMAGE
     type: string
     description: release-tests image
     default: praveen4g0/release-tests:v0.0.7
-  - name: cluster-name
+  - name: CLUSTER_NAME
     type: string
     description: Cluster name
     default: "openshift-pipelines-install"
-  - name: uploader-host
+  - name: UPLOADER-HOST
     type: string
     description: If you have this installed then set it here.
   steps:
     - name: run-triggers-release-tests
-      image: $(params.image)
+      image: $(params.IMAGE)
       workingDir: /go/src/github.com/openshift-pipelines/release-tests
       env:
         - name: UPLOADER_USERNAME
@@ -43,7 +43,7 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -e -u -o pipefail
-        export KUBECONFIG=$(workspaces.install-dir.path)/auth/kubeconfig
+        export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
         export GOPATH=/go
 
         #Gauge configuration
@@ -54,20 +54,20 @@ spec:
         gauge config plugin_kill_timeout 3600000
 
         #Gauge run command & OPERATOR_ENV sets on which environment you run release tests
-        OPERATOR_ENV=$(params.operator-env) gauge run --env "test" --log-level=debug --verbose   specs/triggers/ || true
+        OPERATOR_ENV=$(params.OPERATOR-ENV) gauge run --env "test" --log-level=debug --verbose   specs/triggers/ || true
 
         # Upload: by default it will upload the file as specified in "$1" to
-        # "$cluster-name/basename of $1" if you specify a $2 it will upload the $1
+        # "$CLUSTER_NAME/basename of $1" if you specify a $2 it will upload the $1
         # file to the destination specified in there.
         function upload() {
           dest="$2"
-          [[ -z ${dest} ]] && dest="CI/$(inputs.params.cluster-name)/$(basename ${1})"
+          [[ -z ${dest} ]] && dest="CI/$(params.CLUSTER_NAME)/$(basename ${1})"
           curl -f -u ${UPLOADER_USERNAME}:${UPLOADER_PASSWORD} \
             -F path=${dest} \
             -F file=@${1} \
-            $(inputs.params.uploader-host)/upload
+            $(params.UPLOADER-HOST)/upload
         }
-        [[ -n $(inputs.params.uploader-host) && \
+        [[ -n $(params.UPLOADER-HOST) && \
            -n ${UPLOADER_USERNAME} && \
            -n ${UPLOADER_PASSWORD} ]] || exit 0
 
@@ -78,10 +78,10 @@ spec:
         tar -czvf reports.tar.gz reports
 
         # uploading report
-        upload reports.tar.gz  CI/$(inputs.params.cluster-name)/triggers-report/${curr_ts}/reports.tar.gz
+        upload reports.tar.gz  CI/$(params.CLUSTER_NAME)/triggers-report/${curr_ts}/reports.tar.gz
 
         # uploading logs
-        upload logs/gauge.log CI/$(inputs.params.cluster-name)/triggers-report/${curr_ts}/result.log
+        upload logs/gauge.log CI/$(params.CLUSTER_NAME)/triggers-report/${curr_ts}/result.log
       volumeMounts:
       - name: source
         mountPath: /go/src/github.com/openshift-pipelines/

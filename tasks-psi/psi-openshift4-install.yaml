@@ -1,0 +1,214 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: provision-cluster-psi
+spec:
+  workspaces:
+    - name: install-dir
+      mountPath: /tekton/home/
+    - name: aws-secrets
+      mountPath: /tekton/home/.aws
+    - name: psi-secrets
+      mountPath: /tekton/home/.config/openstack
+  params:
+    - name: OPENSHIFT_INSTALLER_IMAGE
+      type: string
+      description: openshift installer base image for upi installation
+      default: praveen4g0/release-tests-bootstrap-image:v0.0.1
+    - name: PLATFORM
+      type: string
+      description: Platform name where the openshift cluster needs to be deployed such as AWS, GCP etc
+      default: "aws"
+    - name: PROJECT_ID
+      type: string
+      default: ""
+      description: Project Id required in case of gcp
+    - name: CLUSTER_NAME
+      type: string
+      description: Cluster name
+    - name: BASE_DOMAIN
+      type: string
+      description: Base domain of your cluster install
+    - name: REPLICAS
+      description: How many replicas for the master and worker node
+      type: string
+    - name: REGION
+      type: string
+      description: Cloud Region where to install
+  steps:
+    - name: setup-psi-infra
+      workingDir: $(workspaces.install-dir.path)
+      image: docker.io/praveen4g0/openstack-aws-cli:v0.0.5
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        export AWS_PROFILE=${AWS_PROFILE:-"aws-pipelines"}
+        CLUSTER_NAME=$(params.CLUSTER_NAME)
+        export DOMAIN=${DOMAIN:-$(params.BASE_DOMAIN)}
+        export NETWORK=${NETWORK:-"provider_net_cci_9"}
+
+
+        # Create install-config.yaml
+        [[ -f install-config.yaml ]] && \
+        echo 'using existing install-config.yaml' && \
+        cat install-config.yaml && exit 0
+        cat << EOF > install-config.yaml
+        apiVersion: v1
+        baseDomain: $(params.BASE_DOMAIN)
+        compute:
+        - hyperthreading: Enabled
+          name: worker
+          platform:
+            openstack:
+              type: ci.m1.xlarge
+          replicas: $(params.REPLICAS)
+        controlPlane:
+          hyperthreading: Enabled
+          name: master
+          platform: {}
+          replicas: $(params.REPLICAS)
+        metadata:
+          creationTimestamp: null
+          name: $(params.CLUSTER_NAME)
+        networking:
+          clusterNetwork:
+          - cidr: 10.128.0.0/14
+            hostPrefix: 23
+          machineCIDR: 192.168.0.0/16
+          networkType: OpenShiftSDN
+          serviceNetwork:
+          - 172.30.0.0/16
+        platform:
+          openstack:
+            cloud: "psi-pipelines"
+            computeFlavor: ci.m1.xlarge
+            externalNetwork: "provider_net_cci_9"
+            lbFloatingIP: "ipxxx"
+            octaviaSupport: "0"
+            region: regionOne
+            trunkSupport: "1"
+        pullSecret: '$PULL_SECRET'
+        sshKey: '$PUBLIC_SSH_KEY'
+        EOF
+        [[ -f install-config.yaml ]]
+
+        mkdir -p "cluster/$CLUSTER_NAME"
+        cp install-config.yaml "cluster/$CLUSTER_NAME/install-config.yaml"
+
+        echo "Checking Openstack server list before installation.."
+        openstack server list
+
+        echo "Allocating a floating IP for cluster's API"
+        FIP=$(openstack floating ip create --description "$CLUSTER_NAME-api" -f value -c floating_ip_address $NETWORK)
+        if [ $? != 0 ]; then
+          echo "Failed to allocate a floating IP for API"
+          exit 10
+        fi
+
+        sed -i "s/ipxxx/$FIP/" cluster/$CLUSTER_NAME/install-config.yaml
+
+        echo "Getting zone ID in Route53"
+        ZONES=$(aws route53 list-hosted-zones --output json)
+        ZONE_ID=$(echo $ZONES | jq -r ".HostedZones[] | select(.Name==\"$DOMAIN.\") | .Id")
+        if [ -z $ZONE_ID ]; then
+          echo "Domain $DOMAIN not found in Route53"
+          exit 20
+        fi
+
+        echo "Updating DNS records in Route53"
+        RESPONSE=$(aws route53 change-resource-record-sets --hosted-zone-id $ZONE_ID --change-batch '{ "Comment": "Update A record for cluster API", "Changes": [ { "Action": "CREATE", "ResourceRecordSet": { "Name": "api.'$CLUSTER_NAME'.'$DOMAIN'", "Type": "A", "TTL":  60, "ResourceRecords": [ { "Value": "'$FIP'" } ] } } ] }' --output json)
+        if [ $? != 0 ]; then
+          echo "Failed to update A record for cluster"
+          echo "Releasing previously allocated floating IP"
+          openstack floating ip delete $FIP
+          exit 25
+        fi
+
+        echo "Waiting for DNS change to propagate"
+        aws route53 wait resource-record-sets-changed --id $(echo $RESPONSE | jq -r '.ChangeInfo.Id')
+      env:
+        - name: PULL_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: openshift-install
+              key: pull-secret
+        - name: PUBLIC_SSH_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openshift-install
+              key: public-ssh-key
+    - name: psi-ocp-cluster-create
+      image: $(params.OPENSHIFT_INSTALLER_IMAGE)
+      workingDir: $(workspaces.install-dir.path)
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        export OS_CLOUD=${OS_CLOUD:-"psi-pipelines"}
+        export OPENSHIFT_INSTALL_OS_IMAGE_OVERRIDE=${OPENSHIFT_INSTALL_OS_IMAGE_OVERRIDE:-"rhcos-4.4"}
+
+        echo -n "Trying to install openshift cluster"
+        sleep 200
+        /usr/local/bin/openshift-install --dir=cluster/$(params.CLUSTER_NAME) create cluster --log-level=debug
+    - name: post-install
+      workingDir: $(workspaces.install-dir.path)
+      image: docker.io/praveen4g0/openstack-aws-cli:v0.0.5
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        export AWS_PROFILE=${AWS_PROFILE:-"aws-pipelines"}
+        CLUSTER_NAME=$(params.CLUSTER_NAME)
+
+        DOMAIN=$(jq -r '.base_domain' "cluster/$CLUSTER_NAME/terraform.tfvars.json")
+        NETWORK=$(jq -r '."*installconfig.InstallConfig".config.platform.openstack.externalNetwork' "cluster/$CLUSTER_NAME/.openshift_install_state.json")
+
+
+        echo "Allocating a floating IP for cluster's ingress"
+        INGRESS_PORT=$(openstack port list -f value -c Name | grep $CLUSTER_NAME- |  grep ingress-port)
+        FIP=$(openstack floating ip create --description "$CLUSTER_NAME-ingress" -f value -c floating_ip_address --port $INGRESS_PORT $NETWORK)
+        if [ $? != 0 ]; then
+          echo "Failed to allocate a floating IP for ingress"
+          exit 10
+        fi
+
+        echo "Getting zone ID in Route53"
+        ZONES=$(aws route53 list-hosted-zones --output json)
+        ZONE_ID=$(echo $ZONES | jq -r ".HostedZones[] | select(.Name==\"$DOMAIN.\") | .Id")
+
+        if [ -z $ZONE_ID ]; then
+          echo "Domain $DOMAIN not found in Route53"
+          exit 20
+        fi
+
+        echo "Updating DNS records in Route53"
+        RESPONSE=$(aws route53 change-resource-record-sets --hosted-zone-id $ZONE_ID --change-batch '{ "Comment": "Update A record for cluster API", "Changes": [ { "Action": "CREATE", "ResourceRecordSet": { "Name": "*.apps.'$CLUSTER_NAME'.'$DOMAIN'", "Type": "A", "TTL":  60, "ResourceRecords": [ { "Value": "'$FIP'" } ] } } ] }' --output json)
+        if [ $? != 0 ]; then
+          echo "Failed to update A record for cluster"
+          echo "Releasing previously allocated floating IP"
+          openstack floating ip delete $FIP
+          exit 25
+        fi
+
+        echo "Waiting for DNS change to propagate"
+        aws route53 wait resource-record-sets-changed --id $(echo $RESPONSE | jq -r '.ChangeInfo.Id')
+    - name: login-to-cluster
+      workingDir: $(workspaces.install-dir.path)
+      image: $(params.OPENSHIFT_INSTALLER_IMAGE)
+      script: |
+        #!/usr/bin/env bash
+        set -e -u -o pipefail
+
+        CLUSTER_NAME=$(params.CLUSTER_NAME)
+
+        echo "Logging in to cluster $CLUSTER_NAME as kubeadmin"
+        export KUBECONFIG=cluster/$CLUSTER_NAME/auth/kubeconfig
+
+        # Sometime the url can let us down, so let's add a counter
+        i=1
+        while [[ $i -le 10 ]];do
+          oc login -u kubeadmin -p $(cat cluster/$CLUSTER_NAME/auth/kubeadmin-password) --insecure-skip-tls-verify=true && break
+          sleep 5
+         (( i++ ))
+        done

@@ -7,6 +7,10 @@ spec:
     - name: install-dir
       mountPath: "/tekton/home/"
     - name: configmap
+  params:
+    - name: CLUSTER_NAME
+      type: string
+      description: cluster name
   steps:
     - name: subscribe-to-operator
       image: quay.io/openshift/origin-cli:latest
@@ -14,19 +18,11 @@ spec:
       script: |
           #!/usr/bin/env bash
           set -e -u -o pipefail
-          export KUBECONFIG=auth/kubeconfig
-
-          # Sometime the url can let us down, so let's add a counter
-          i=1
-          while [[ $i -le 10 ]];do
-            oc login -u kubeadmin -p "$(cat $(workspaces.install-dir.path)/auth/kubeadmin-password)" --insecure-skip-tls-verify=true && break || true
-            sleep 5
-           (( i++ ))
-          done
+          export KUBECONFIG=cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
 
           echo -n "Subscribing to openshift pipelines operator...."
           # subscribe to pipelines operator
-          oc apply -f $(workspaces.configmap.path)/subscription.yaml >/dev/null 2>&1
+          oc apply -f $(workspaces.configmap.path)/subscription.yaml
           echo -n " Done."
       securityContext:
         runAsUser: 0

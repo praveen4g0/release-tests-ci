@@ -45,17 +45,9 @@ spec:
         # exporting required
         export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
 
-
-        echo -n "Running pipelines tutorial..."
-        # Run Tutorial pipelines Tests
-        ./demo.sh setup | tee -a logs || true
-        ./demo.sh run | tee -a logs || true
-        echo -n "Done."
-
         [[ -n $(params.UPLOADER-HOST) && \
         -n ${UPLOADER_USERNAME} && \
         -n ${UPLOADER_PASSWORD} ]] || exit 0
-
         function upload() {
           dest="$2"
           [[ -z ${dest} ]] && dest="CI/$(params.CLUSTER_NAME)/$(basename ${1})"
@@ -64,6 +56,13 @@ spec:
             -F file=@${1} \
             $(params.UPLOADER-HOST)/upload
         }
+
+        echo -n "Running pipelines tutorial..."
+        # Run Tutorial pipelines Tests
+        ./demo.sh setup | tee -a logs || true
+        sleep 5
+        ./demo.sh run | tee -a logs || true
+        echo -n "Done."
       volumeMounts:
       - name: source
         mountPath: /tutorial

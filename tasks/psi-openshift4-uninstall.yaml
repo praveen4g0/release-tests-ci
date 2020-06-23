@@ -33,7 +33,7 @@ spec:
         export OS_CLOUD=${OS_CLOUD:-"psi-pipelines"}
 
         echo "Running \"openshift-install destroy cluster\""
-        /usr/local/bin/openshift-install --dir=cluster/$CLUSTER_NAME --log-level debug destroy cluster || true
+        /usr/local/bin/openshift-install --dir=cluster/$CLUSTER_NAME --log-level debug destroy cluster
     - name: remove-psi-resources
       workingDir: $(workspaces.install-dir.path)
       image: docker.io/praveen4g0/openstack-aws-cli:v0.0.5

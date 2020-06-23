@@ -63,7 +63,7 @@ demo.setup-pipeline() {
   [[ "$run_bootstrap" == "skip-bootstrap" ]] || bootstrap
 
   info "Applying pipeline tasks"
-  OC apply -f tasks-psi/
+  OC apply -f tasks/
 
 
   info "Applying resources"
@@ -83,7 +83,7 @@ demo.cleanup() {
   [[ "$run_bootstrap" == "skip-bootstrap" ]] || bootstrap
 
   info "Delete tasks"
-  OC delete -f tasks-psi/ || true
+  OC delete -f tasks/ || true
 
   info "Deleting pipeline"
   OC delete -f pipeline/release-tests-pipeline.yaml || true

@@ -48,15 +48,15 @@ spec:
         export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
         export GOPATH=/go
 
+        clean() {  echo -n " Uploading test results... "; curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`; tar -czvf reports.tar.gz reports; upload reports.tar.gz  CI/$(params.CLUSTER_NAME)/pipelines-report/${curr_ts}/reports.tar.gz; upload logs/gauge.log CI/$(params.CLUSTER_NAME)/pipelines-report/${curr_ts}/result.log; }
+        trap clean EXIT
+
         #Gauge configuration
         gauge config runner_connection_timeout 3600000 && \
         gauge config runner_request_timeout 3600000 && \
         gauge config ide_request_timeout 3600000 && \
         gauge config plugin_connection_timeout 3600000 && \
         gauge config plugin_kill_timeout 3600000
-
-        #Gauge run command & OPERATOR_ENV sets on which environment you run release tests
-        OPERATOR_ENV=$(params.OPERATOR-ENV) gauge run --env "test" --tags="e2e" --log-level=debug --verbose   specs/pipelines/ || true
 
         # Upload: by default it will upload the file as specified in "$1" to
         # "$CLUSTER_NAME/basename of $1" if you specify a $2 it will upload the $1
@@ -73,17 +73,8 @@ spec:
            -n ${UPLOADER_USERNAME} && \
            -n ${UPLOADER_PASSWORD} ]] || exit 0
 
-        # Set report generated timestamp
-        curr_ts=`date +"%Y-%m-%d-%H-%M-%S"`
-
-        # tar reports folder
-        tar -czvf reports.tar.gz reports
-
-        # uploading report
-        upload reports.tar.gz  CI/$(params.CLUSTER_NAME)/pipelines-report/${curr_ts}/reports.tar.gz
-
-        # uploading logs
-        upload logs/gauge.log CI/$(params.CLUSTER_NAME)/pipelines-report/${curr_ts}/result.log
+        #Gauge run command & OPERATOR_ENV sets on which environment you run release tests
+        OPERATOR_ENV=$(params.OPERATOR-ENV) gauge run --env "test" --tags="e2e" --log-level=debug --verbose   specs/pipelines/
       volumeMounts:
       - name: source
         mountPath: /go/src/github.com/openshift-pipelines/

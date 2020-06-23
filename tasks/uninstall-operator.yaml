@@ -21,9 +21,6 @@ spec:
           set -e -u -o pipefail
           export KUBECONFIG=$(workspaces.install-dir.path)/cluster/$(params.CLUSTER_NAME)/auth/kubeconfig
 
-          clean() {  echo -n " Running Cleanup... "; oc api-resources | grep tekton; echo -n "openshift-pipelines uninstalled successfully.."; }
-          trap clean EXIT
-
           # Delete instance (name: cluster) of config.operator.tekton.dev
           oc delete config.operator.tekton.dev cluster --cascade=true
 
